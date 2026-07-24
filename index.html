@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/pbot-demo/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="PAYVIUM — виртуальные карты для оплаты зарубежных сервисов">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="PAYVIUM">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>PAYVIUM</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Messenger bridges. Both are safe on the standalone site: outside the
+       messengers initData stays empty and the app runs in browser mode. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://st.max.ru/js/max-web-app.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0D0F14;
+    }
+    /* Прелоадер: обычный HTML, виден в первые ~200 мс, пока грузится
+       движок и код (~2,5 МБ). Повторяет сплэш из макетов: гигантская
+       синяя «V» на тёмном фоне + wordmark. Снимается по
+       flutter-first-frame, а Flutter рисует поверх такой же сплэш —
+       переход бесшовный. */
+    #preloader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #0D0F14;
+      overflow: hidden;
+      z-index: 9999;
+      transition: opacity .3s;
+    }
+    #preloader .vee {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg,
+        #4468F0 0%, #2D56D9 28%, #1D3A94 62%, rgba(16, 26, 60, 0) 95%);
+      clip-path: polygon(-18% 0, 30% 0, 50% 52%, 70% 0, 118% 0,
+        61.5% 88%, 38.5% 88%);
+    }
+    #preloader .wordmark {
+      position: relative;
+      color: #fff;
+      font: 800 min(15vw, 64px)/1 -apple-system, "SF Pro Text",
+        "Helvetica Neue", Arial, sans-serif;
+      letter-spacing: 2px;
+      margin-bottom: 24px;
+    }
+    #preloader .wordmark b { color: #2D56D9; font-weight: 800; }
+    #preloader .title {
+      position: relative;
+      color: #fff;
+      font: 700 22px/1.2 -apple-system, "SF Pro Text", "Helvetica Neue",
+        Arial, sans-serif;
+    }
+    #preloader .subtitle {
+      position: relative;
+      color: #8E93A3;
+      font: 400 14px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue",
+        Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="preloader">
+    <div class="vee"></div>
+    <div class="wordmark">PAY<b>V</b>IUM</div>
+    <div class="title">Подготавливаем вход</div>
+    <div class="subtitle">Проверяем данные аккаунта…</div>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('preloader');
+      if (el) {
+        el.style.opacity = '0';
+        setTimeout(function () { el.remove(); }, 300);
+      }
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
