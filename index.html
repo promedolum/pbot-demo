@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/pbot-demo/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="PAYVIUM — виртуальные карты для оплаты зарубежных сервисов">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="PAYVIUM">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>PAYVIUM</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Messenger bridges. Both are safe on the standalone site: outside the
+       messengers initData stays empty and the app runs in browser mode. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://st.max.ru/js/max-web-app.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #0D0F14;
+    }
+    /* Прелоадер: обычный HTML, виден в первые ~200 мс, пока грузятся
+       движок и код. Повторяет сплэш из макетов: гигантская
+       синяя «V» на тёмном фоне + wordmark. Снимается по
+       flutter-first-frame, а Flutter рисует поверх такой же сплэш —
+       переход бесшовный. */
+    #preloader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #0D0F14;
+      overflow: hidden;
+      z-index: 9999;
+      transition: opacity .3s;
+    }
+    #preloader .vee {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg,
+        #4468F0 0%, #2D56D9 28%, #1D3A94 62%, rgba(16, 26, 60, 0) 95%);
+      clip-path: polygon(-18% 0, 30% 0, 50% 52%, 70% 0, 118% 0,
+        61.5% 88%, 38.5% 88%);
+    }
+    #preloader .wordmark {
+      position: relative;
+      color: #fff;
+      font: 800 min(15vw, 64px)/1 -apple-system, "SF Pro Text",
+        "Helvetica Neue", Arial, sans-serif;
+      letter-spacing: 2px;
+      margin-bottom: 24px;
+    }
+    #preloader .wordmark b { color: #2D56D9; font-weight: 800; }
+    #preloader .title {
+      position: relative;
+      color: #fff;
+      font: 700 22px/1.2 -apple-system, "SF Pro Text", "Helvetica Neue",
+        Arial, sans-serif;
+    }
+    #preloader .subtitle {
+      position: relative;
+      color: #8E93A3;
+      font: 400 14px/1.4 -apple-system, "SF Pro Text", "Helvetica Neue",
+        Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="preloader">
+    <div class="vee"></div>
+    <div class="wordmark">PAY<b>V</b>IUM</div>
+    <div class="title">Подготавливаем вход</div>
+    <div class="subtitle">Проверяем данные аккаунта…</div>
+  </div>
+  <script>
+    // Fixed, non-sensitive startup stages are mirrored to data-* attributes
+    // so automated smoke tests can read in-page timings without relying on
+    // controller wall-clock time. Performance Timeline remains the canonical
+    // source for manual profiling in DevTools.
+    window.payviumStartupMark = function (name) {
+      if (!window.performance || typeof window.performance.mark !== 'function') {
+        return;
+      }
+      window.performance.mark(name);
+      document.documentElement.setAttribute(
+        'data-' + name.replace(/\./g, '-'),
+        window.performance.now().toFixed(1)
+      );
+    };
+    window.payviumStartupMeasure = function (name, startMark, endMark) {
+      if (!window.performance || typeof window.performance.measure !== 'function') {
+        return;
+      }
+      try {
+        window.performance.measure(name, startMark, endMark);
+        var entries = window.performance.getEntriesByName(name, 'measure');
+        var entry = entries[entries.length - 1];
+        if (entry) {
+          document.documentElement.setAttribute(
+            'data-' + name.replace(/\./g, '-') + '-duration',
+            entry.duration.toFixed(1)
+          );
+        }
+      } catch (_) {
+        // Startup diagnostics must never block the application.
+      }
+    };
+    // Bounded, non-sensitive API events survive navigation reloads in this tab.
+    // Dart supplies only allowlisted fields; rebuild the object here as a second
+    // guard against accidentally exposing request URLs, headers or payloads.
+    (function () {
+      var storageKey = 'payvium.api.diagnostics.v1';
+      var maxEvents = 120;
+      var pageStartedAt = new Date().toISOString();
+      var operations = new Set([
+        'auth.otp_request', 'auth.otp_verify', 'auth.messenger_verify',
+        'auth.refresh', 'auth.logout', 'auth.step_up_request',
+        'auth.step_up_verify', 'config.fetch', 'catalog.products',
+        'catalog.tariffs', 'catalog.tariff', 'card_orders.create',
+        'card_orders.list', 'card_orders.fetch', 'cards.list', 'cards.fetch',
+        'cards.credentials', 'cards.block', 'cards.unblock', 'cards.close',
+        'profile.delete', 'profile.fetch',
+        'profile.email_change_start', 'profile.email_change_confirm_old',
+        'profile.email_change_confirm_new', 'messenger.links_list',
+        'messenger.link', 'messenger.unlink'
+      ]);
+      var outcomes = new Set([
+        'started', 'response_headers', 'succeeded', 'failed_api',
+        'failed_network', 'failed_timeout_headers', 'failed_timeout_body',
+        'failed_cancelled', 'failed_malformed', 'failed_unexpected'
+      ]);
+      var events = [];
+      try {
+        var stored = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+        if (Array.isArray(stored)) {
+          stored.slice(-maxEvents).forEach(function (source, index) {
+            if (!source || !operations.has(source.operation) ||
+                !outcomes.has(source.outcome) ||
+                !Number.isFinite(source.elapsed_ms)) {
+              return;
+            }
+            var restored = {
+              sequence: Number.isInteger(source.sequence)
+                ? source.sequence
+                : index + 1,
+              at: String(source.at || '').slice(0, 40),
+              page_started_at: String(source.page_started_at || '').slice(0, 40),
+              operation: source.operation,
+              outcome: source.outcome,
+              elapsed_ms: Math.max(0, Math.round(source.elapsed_ms))
+            };
+            if (Number.isInteger(source.status) &&
+                source.status >= 100 && source.status <= 599) {
+              restored.status = source.status;
+            }
+            events.push(restored);
+          });
+        }
+      } catch (_) {
+        events = [];
+      }
+
+      function publish() {
+        var json = JSON.stringify(events);
+        document.documentElement.setAttribute('data-payvium-api-events', json);
+        try { sessionStorage.setItem(storageKey, json); } catch (_) {}
+      }
+
+      window.payviumApiDiagnostic = function (eventJson) {
+        try {
+          var source = JSON.parse(eventJson);
+          if (!source || !operations.has(source.operation) ||
+              !outcomes.has(source.outcome) ||
+              !Number.isFinite(source.elapsed_ms)) {
+            return;
+          }
+          var event = {
+            sequence: events.length === 0
+              ? 1
+              : Number(events[events.length - 1].sequence || 0) + 1,
+            at: new Date().toISOString(),
+            page_started_at: pageStartedAt,
+            operation: source.operation,
+            outcome: source.outcome,
+            elapsed_ms: Math.max(0, Math.round(source.elapsed_ms))
+          };
+          if (Number.isInteger(source.status) &&
+              source.status >= 100 && source.status <= 599) {
+            event.status = source.status;
+          }
+          events.push(event);
+          if (events.length > maxEvents) events = events.slice(-maxEvents);
+          publish();
+          console.info('[PAYVIUM API]', JSON.stringify(event));
+        } catch (_) {
+          // Diagnostics must never affect application behavior.
+        }
+      };
+      publish();
+    })();
+    window.payviumStartupMark('payvium.html.ready');
+    window.addEventListener('flutter-first-frame', function () {
+      window.payviumStartupMark('payvium.flutter.first_frame');
+      window.payviumStartupMeasure(
+        'payvium.html_to_flutter_first_frame',
+        'payvium.html.ready',
+        'payvium.flutter.first_frame'
+      );
+      var el = document.getElementById('preloader');
+      if (el) {
+        el.style.opacity = '0';
+        setTimeout(function () { el.remove(); }, 300);
+      }
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
